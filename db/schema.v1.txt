@@ -1,0 +1,166 @@
+BEGIN TRANSACTION;
+
+CREATE TABLE product (
+    id               INTEGER NOT NULL,
+    last_update      REAL NOT NULL,
+    type             TEXT NOT NULL,
+    tags             TEXT,
+    PRIMARY KEY(id)
+);
+
+CREATE TABLE product_info (
+    product_id       INTEGER NOT NULL,
+    language         TEXT NOT NULL,
+    name             TEXT NOT NULL,
+    description      TEXT,
+    PRIMARY KEY(product_id,language),
+    FOREIGN KEY(product_id) REFERENCES product(id) ON DELETE CASCADE
+);
+
+CREATE TABLE object_medias (
+    id               INTEGER NOT NULL,
+    media_file       TEXT NOT NULL,
+    last_update      REAL NOT NULL,
+    PRIMARY KEY(id, media_file)
+);
+
+CREATE TABLE collection(
+    id               INTEGER NOT NULL,
+    last_update      REAL NOT NULL,
+    PRIMARY KEY(id)
+);
+
+CREATE TABLE collection_info (
+    collection_id    INTEGER NOT NULL,
+    language         TEXT NOT NULL,
+    name             TEXT NOT NULL,
+    description      TEXT,
+    PRIMARY KEY(collection_id,language),
+    FOREIGN KEY(collection_id) REFERENCES collection(id) ON DELETE CASCADE
+);
+
+CREATE TABLE variant (
+    id                      INTEGER NOT NULL,
+    product_id              INTEGER NOT NULL,
+    price                   INTEGER,
+    price_compare           INTEGER,
+    price_formatted         TEXT,
+    price_compare_formatted TEXT,
+    deleted                 INTEGER DEFAULT 0,
+    PRIMARY KEY(id)
+    FOREIGN KEY(product_id) REFERENCES product(id) ON DELETE CASCADE
+);
+
+CREATE TABLE variant_info (
+    variant_id       INTEGER NOT NULL,
+    language         TEXT NOT NULL,
+    name             TEXT NOT NULL,
+    description      TEXT,
+    PRIMARY KEY(variant_id,language),
+    FOREIGN KEY(variant_id) REFERENCES variant(id) ON DELETE CASCADE
+);
+
+CREATE TABLE cart (
+    id               INTEGER NOT NULL,
+    display_id       INTEGER NOT NULL,
+    transaction_id   TEXT NOT NULL UNIQUE,
+    type             INTEGER NOT NULL CHECK (type IN (1,2)),
+    order_info       TEXT NOT NULL,
+    status           INTEGER NOT NULL,
+    checkout_method  INTEGER NOT NULL,
+    locked_at        REAL NOT NULL,
+    PRIMARY KEY(id)
+);
+
+CREATE TABLE cart_contents (
+    cart_id          INTEGER NOT NULL,
+    variant_id       INTEGER NOT NULL,
+    amount           INTEGER NOT NULL,
+    PRIMARY KEY(cart_id,variant_id),
+    FOREIGN KEY(cart_id) REFERENCES cart(id) ON DELETE CASCADE
+);
+
+CREATE TABLE reservation (
+    id               INTEGER NOT NULL,
+    cart_id          INTEGER NOT NULL,
+    variant_id       INTEGER NOT NULL,
+    unit_id          INTEGER NOT NULL,
+    location         INTEGER NOT NULL,
+    quantity         INTEGER NOT NULL,
+    PRIMARY KEY(id),
+    FOREIGN KEY(cart_id) REFERENCES cart(id) ON DELETE CASCADE
+);
+
+CREATE TABLE inventory (
+    unit_id          INTEGER NOT NULL,
+    tray_number      INTEGER NOT NULL,
+    location         INTEGER NOT NULL,
+    variant_id       INTEGER NOT NULL,
+    width            INTEGER NOT NULL CHECK(width > 0),
+    quantity         INTEGER NOT NULL CHECK(quantity >= 0),
+    depth            INTEGER NOT NULL CHECK(depth > 0),
+    PRIMARY KEY(unit_id, location, variant_id),
+    FOREIGN KEY(variant_id) REFERENCES variant(id) ON DELETE CASCADE
+);
+
+CREATE TABLE product_property (
+    product_id       INTEGER NOT NULL,
+    type             TEXT NOT NULL,
+    language         TEXT NOT NULL,
+    name             TEXT NOT NULL,
+    value            TEXT NOT NULL,
+    PRIMARY KEY(product_id, type, language),
+    FOREIGN KEY(product_id) REFERENCES product(id) ON DELETE CASCADE
+);
+
+CREATE TABLE variant_property (
+    variant_id       INTEGER NOT NULL,
+    type             TEXT NOT NULL,
+    language         TEXT NOT NULL,
+    name             TEXT NOT NULL,
+    value            TEXT NOT NULL,
+    PRIMARY KEY(variant_id, type, language),
+    FOREIGN KEY(variant_id) REFERENCES variant(id) ON DELETE CASCADE
+);
+
+CREATE TABLE variant_option (
+    variant_id       INTEGER NOT NULL,
+    option           TEXT NOT NULL,
+    value            TEXT NOT NULL,
+    PRIMARY KEY(variant_id, option),
+    FOREIGN KEY(variant_id) REFERENCES variant(id) ON DELETE CASCADE
+);
+
+CREATE TABLE product_collection (
+    product_id       INTEGER NOT NULL,
+    collection_id    INTEGER NOT NULL,
+    PRIMARY KEY(product_id, collection_id),
+    FOREIGN KEY(product_id) REFERENCES product(id) ON DELETE CASCADE,
+    FOREIGN KEY(collection_id) REFERENCES collection(id) ON DELETE CASCADE
+);
+
+CREATE TABLE global_config (
+    key              TEXT NOT NULL,
+    value            TEXT NOT NULL,
+    PRIMARY KEY(key)
+);
+
+CREATE TABLE order_history (
+    id               INTEGER NOT NULL,
+    transaction_id   TEXT NOT NULL,
+    order_info       TEXT NOT NULL,
+    completion_cause INTEGER NOT NULL,
+    created_at       REAL NOT NULL,
+    PRIMARY KEY(id),
+    UNIQUE(transaction_id, order_info, created_at)
+);
+
+CREATE TABLE users (
+    name             TEXT NOT NULL,
+    password         BLOB NOT NULL,
+    access_level     INTEGER NOT NULL,
+    last_logged_in   REAL NOT NULL,
+    PRIMARY KEY(name)
+);
+
+PRAGMA user_version=1;

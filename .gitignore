@@ -1,0 +1,9 @@
+*.pem
+*.pem.crt
+*.pem.key
+*.private.key
+*.log*
+*.db3
+__pycache__/
+.idea/
+test.py

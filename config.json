@@ -1,0 +1,252 @@
+{
+  "database": {
+    "name": "kiosk.db3",
+    "schema_version": 1
+  },
+  "cloud": {
+    "type": "aws",
+    "aws": {
+      "deviceId": "ua-khar-dev-01:ivs",
+      "customerId": "1111111",
+      "iot": {
+        "endpoint": "a3iw6z3ertjakn-ats.iot.us-west-1.amazonaws.com",
+        "port": 8883,
+        "sas_token": "",
+        "max_message_size": 4096,
+        "keep_alive_interval": 60,
+        "ca_certificate": "AmazonRootCA1.pem",
+        "certificate": "2e8e920538-certificate.pem.crt",
+        "private_key": "2e8e920538-private.pem.key",
+        "topics": [
+          {
+            "name": "product",
+            "value": "products/$customerId/updates"
+          },
+          {
+            "name": "collection",
+            "value": "collections/$customerId/updates"
+          },
+          {
+            "name": "planogram",
+            "value": "planograms/$deviceId/updates"
+          },
+          {
+            "name": "transaction",
+            "value": "transactions/$deviceId/updates"
+          },
+          {
+            "name": "reservation",
+            "value": "reservations/$deviceId/updates"
+          },
+          {
+            "name": "brand",
+            "value": "brands/$customerId/updates"
+          },
+          {
+            "name": "update",
+            "value": "software/update/$deviceId"
+          }
+        ]
+      },
+      "api_endpoints": [
+        {
+          "name": "collection",
+          "key": "vmIlZIJEhV5ryLWQrlG9G1pPtDhyQmcb9CJ9Nebv",
+          "value": "https://dev-west-channel-manager-v2-api.jabiledgeretail.com/collections-info?customerId=$customerId"
+        },
+        {
+          "name": "product",
+          "key": "vmIlZIJEhV5ryLWQrlG9G1pPtDhyQmcb9CJ9Nebv",
+          "value": "https://dev-west-channel-manager-v2-api.jabiledgeretail.com/products-info?customerId=$customerId"
+        },
+        {
+          "name": "planogram",
+          "key": "vmIlZIJEhV5ryLWQrlG9G1pPtDhyQmcb9CJ9Nebv",
+          "value": "https://dev-west-channel-manager-v2-api.jabiledgeretail.com/device/planogram-info?customerId=$customerId"
+        },
+        {
+          "name": "transaction",
+          "key": "vmIlZIJEhV5ryLWQrlG9G1pPtDhyQmcb9CJ9Nebv",
+          "value": "https://dev-west-channel-manager-v2-api.jabiledgeretail.com/transaction"
+        },
+        {
+          "name": "dispensing",
+          "key": "vmIlZIJEhV5ryLWQrlG9G1pPtDhyQmcb9CJ9Nebv",
+          "value": "https://dev-west-channel-manager-v2-api.jabiledgeretail.com/transaction/dispensing"
+        },
+        {
+          "name": "prereservation",
+          "key": "vmIlZIJEhV5ryLWQrlG9G1pPtDhyQmcb9CJ9Nebv",
+          "value": "https://dev-west-channel-manager-v2-api.jabiledgeretail.com/online-shopping/pre-reserv/ack"
+        },
+        {
+          "name": "reservation",
+          "key": "vmIlZIJEhV5ryLWQrlG9G1pPtDhyQmcb9CJ9Nebv",
+          "value": "https://dev-west-channel-manager-v2-api.jabiledgeretail.com/online-shopping/reserv"
+        },
+        {
+          "name": "brand",
+          "key": "vmIlZIJEhV5ryLWQrlG9G1pPtDhyQmcb9CJ9Nebv",
+          "value": "https://dev-west-channel-manager-v2-api.jabiledgeretail.com/brand-info?customerId=$customerId"
+        }
+      ]
+    }
+  },
+  "hardware": {
+    "vending": {
+      "model": "jofemar",
+      "jofemar": {
+        "units": [
+          {
+            "id": 0,
+            "port": "/dev/ttyS0",
+            "address": 1,
+            "multi_dispense": true,
+            "num_trays": 6,
+            "max_tray_width": 10,
+            "tray_numbering": "bottom",
+            "sensors": [
+              {
+                "type": "door"
+              },
+              {
+                "type": "temperature",
+                "alert_enabled": true,
+                "high_threshold": 400,
+                "low_threshold": -50,
+                "insensitivity_threshold": 9,
+                "duration_raise": 30,
+                "duration_clear": 15
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "indication": {
+      "enabled": false,
+      "arduino_led": {
+        "enabled": false,
+        "port": "/dev/tnt2"
+      },
+      "front_display": {
+        "enabled": false,
+        "server": "jer-fd:8092"
+      }
+    }
+  },
+  "communication": {
+    "port": 8082
+  },
+  "telemetry": {
+    "currency": "USD",
+    "api": {
+      "key": "",
+      "value":"https://dev-west-telemetry-api.jabiledgeretail.com/telemetry"
+    },
+    "intervals": [
+      {
+        "name": "heartbeat",
+        "value": 900
+      }
+    ]
+  },
+  "ui": {
+    "rest_server": {
+      "port": 8084,
+      "ui_model": "data/ui_model.json",
+      "brand_info": "data/brand_info.json",
+      "media": "/assets/images",
+      "transaction_id_timeout": 30
+    },
+    "websocket_server": {
+      "port": 9094,
+      "keep_alive_interval": 10,
+      "keep_alive_log": false
+    }
+  },
+  "logic": {
+    "cart": {
+      "expiration_timeout": 900,
+      "prereservation_timeout": 1200,
+      "reservation_timeout": {
+        "unit": "H",
+        "value": 24
+      },
+      "order_history_timeout": {
+        "unit": "D",
+        "value": 7
+      }
+    },
+    "login": {
+      "security_timeout": 300
+    }
+  },
+  "logger": {
+    "max_file_size": 1,
+    "max_backup_files": 5,
+    "general_level": "DEBUG",
+    "levels": [
+      {
+        "module": "cloud.iot",
+        "level": "INFO"
+      },
+      {
+        "module": "cloud.api",
+        "level": "DEBUG"
+      },
+      {
+        "module": "telemetry",
+        "level": "DEBUG"
+      },
+      {
+        "module": "hw.vend",
+        "level": "DEBUG"
+      },
+      {
+        "module": "hw.ind",
+        "level": "WARNING"
+      },
+      {
+        "module": "hw.sens",
+        "level": "INFO"
+      },
+      {
+        "module": "ui.rest",
+        "level": "DEBUG"
+      },
+      {
+        "module": "ui.ws",
+        "level": "DEBUG"
+      },
+      {
+        "module": "logic.cart",
+        "level": "DEBUG"
+      },
+      {
+        "module": "logic.plangrm",
+        "level": "DEBUG"
+      },
+      {
+        "module": "logic.disp",
+        "level": "DEBUG"
+      },
+      {
+        "module": "db",
+        "level": "DEBUG"
+      },
+      {
+        "module": "core.evtbus",
+        "level": "WARNING"
+      },
+      {
+        "module": "core",
+        "level": "INFO"
+      },
+      {
+        "module": "comms",
+        "level": "INFO"
+      }
+    ]
+  }
+}
