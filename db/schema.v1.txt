@@ -17,16 +17,17 @@ CREATE TABLE product_info (
     FOREIGN KEY(product_id) REFERENCES product(id) ON DELETE CASCADE
 );
 
-CREATE TABLE object_medias (
+CREATE TABLE media (
     id               INTEGER NOT NULL,
-    media_file       TEXT NOT NULL,
+    filename         TEXT NOT NULL,
     last_update      REAL NOT NULL,
-    PRIMARY KEY(id, media_file)
+    PRIMARY KEY(id)
 );
 
 CREATE TABLE collection(
     id               INTEGER NOT NULL,
     last_update      REAL NOT NULL,
+    media_id         INTEGER,
     PRIMARY KEY(id)
 );
 
@@ -47,7 +48,8 @@ CREATE TABLE variant (
     price_formatted         TEXT,
     price_compare_formatted TEXT,
     deleted                 INTEGER DEFAULT 0,
-    PRIMARY KEY(id)
+    media_id                INTEGER,
+    PRIMARY KEY(id),
     FOREIGN KEY(product_id) REFERENCES product(id) ON DELETE CASCADE
 );
 
@@ -105,21 +107,21 @@ CREATE TABLE inventory (
 
 CREATE TABLE product_property (
     product_id       INTEGER NOT NULL,
-    type             TEXT NOT NULL,
     language         TEXT NOT NULL,
+    type             TEXT NOT NULL,
     name             TEXT NOT NULL,
     value            TEXT NOT NULL,
-    PRIMARY KEY(product_id, type, language),
+    PRIMARY KEY(product_id, language, type),
     FOREIGN KEY(product_id) REFERENCES product(id) ON DELETE CASCADE
 );
 
 CREATE TABLE variant_property (
     variant_id       INTEGER NOT NULL,
-    type             TEXT NOT NULL,
     language         TEXT NOT NULL,
+    type             TEXT NOT NULL,
     name             TEXT NOT NULL,
     value            TEXT NOT NULL,
-    PRIMARY KEY(variant_id, type, language),
+    PRIMARY KEY(variant_id, language, type),
     FOREIGN KEY(variant_id) REFERENCES variant(id) ON DELETE CASCADE
 );
 

@@ -49,21 +49,18 @@ class EventBus(AppModule):
 
     def post_low(self, event: Event):
         """Push event to the queue with low priority"""
-        self._lowprio_q_lock.acquire()
-        self._lowprio_q.appendleft(event)
-        self._lowprio_q_lock.release()
+        with self._lowprio_q_lock:
+            self._lowprio_q.appendleft(event)
 
     def post(self, event: Event):
         """Push event to the queue with normal priority"""
-        self._normprio_q_lock.acquire()
-        self._normprio_q.appendleft(event)
-        self._normprio_q_lock.release()
+        with self._normprio_q_lock:
+            self._normprio_q.appendleft(event)
 
     def post_high(self, event: Event):
         """Push event to the queue with high priority"""
-        self._highprio_q_lock.acquire()
-        self._highprio_q.appendleft(event)
-        self._highprio_q_lock.release()
+        with self._highprio_q_lock:
+            self._highprio_q.appendleft(event)
 
     def _dispatch(self):
         """Takes events from the low, normal and high priority queues and invokes corresponding registered handlers"""

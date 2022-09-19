@@ -55,7 +55,7 @@ class Logger:
         self._config = config
         self._logger = logging.getLogger(LOGGER_NAME)
         self._logger.setLevel(get_log_level(self._config["general_level"]))
-        formatter = logging.Formatter('%(asctime)s %(levelname)-8s %(name)-20s [%(funcName)s]: %(message)s')
+        formatter = logging.Formatter('%(asctime)s %(levelname)-8s %(name)-21s [%(funcName)s]: %(message)s')
         handler = logging.handlers.RotatingFileHandler(LOG_FILENAME,
                                                        maxBytes=self._config["max_file_size"]*1024*1024,  # param in MB
                                                        backupCount=self._config['max_backup_files'])

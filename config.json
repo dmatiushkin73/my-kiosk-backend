@@ -1,4 +1,7 @@
 {
+  "general": {
+    "language": "en"
+  },
   "database": {
     "name": "kiosk.db3",
     "schema_version": 1
@@ -98,7 +101,7 @@
       "jofemar": {
         "units": [
           {
-            "id": 0,
+            "id": 1,
             "port": "/dev/ttyS0",
             "address": 1,
             "multi_dispense": true,
@@ -154,8 +157,8 @@
   "ui": {
     "rest_server": {
       "port": 8084,
-      "ui_model": "data/ui_model.json",
-      "brand_info": "data/brand_info.json",
+      "ui_model_filename": "ui-model.json",
+      "brand_info_filename": "brand-info.json",
       "media": "/assets/images",
       "transaction_id_timeout": 30
     },
@@ -166,6 +169,11 @@
     }
   },
   "logic": {
+    "planogram": {
+      "local_image_url_prefix": "/assets/images",
+      "brand_info_filename": "brand-info.json",
+      "ui_model_filename": "ui-model.json"
+    },
     "cart": {
       "expiration_timeout": 900,
       "prereservation_timeout": 1200,

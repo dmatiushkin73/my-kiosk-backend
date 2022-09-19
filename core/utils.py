@@ -1,4 +1,5 @@
 import hashlib
+import sys
 
 DEVICE_ID_PLACEHOLDER = '$deviceId'
 CUSTOMER_ID_PLACEHOLDER = '$customerId'
@@ -8,20 +9,30 @@ def make_hash(s: str) -> bytes:
     return hashlib.sha224(bytes(s, 'utf-8')).digest()
 
 
-def check_config(config: dict, req_options: list, key: str = None) -> (bool, str):
+def check_config(config: dict, req_options: list) -> (bool, str):
     """Checks that all required options in the given list req_options are present in the given config dictionary.
-       If key is given, then check is done assuming config[key] is another dictionary
-       that must have the given options
+       If an option has format A:B, then first it is checked that A is present in config and if yes,
+       then it is assumed that config['A'] is also a dict and it is checked that B is present in it.
     """
-    dict2check = config
-    if key and len(key) > 0:
-        dict2check = config[key]
     for opt in req_options:
-        if opt not in dict2check:
-            return False, opt
-        if ((type(dict2check[opt]) == str or type(dict2check[opt]) == list or type(dict2check[opt]) == dict) and
-                len(dict2check[opt]) == 0):
-            return False, opt
+        if ':' in opt:
+            parts = opt.split(':')
+            if parts[0] not in config:
+                return False, parts[0]
+            config_a = config[parts[0]]
+            if type(config_a) != dict or len(config_a) == 0:
+                return False, parts[0]
+            if parts[1] not in config_a:
+                return False, parts[1]
+            config_b = config_a[parts[1]]
+            if (type(config_b) == str or type(config_b) == list or type(config_b) == dict) and len(config_b) == 0:
+                return False, parts[1]
+        else:
+            if opt not in config:
+                return False, opt
+            if ((type(config[opt]) == str or type(config[opt]) == list or type(config[opt]) == dict) and
+                    len(config[opt]) == 0):
+                return False, opt
     return True, None
 
 
@@ -35,6 +46,10 @@ def get_name_from_url(url: str) -> str | None:
     return None
 
 
+def _myname_(o: object) -> str:
+    return str(o.__class__).split("'")[1] + "." + sys._getframe(1).f_code.co_name
+
+
 class DbBroken(Exception):
     pass
 
@@ -42,7 +57,7 @@ class DbBroken(Exception):
 class DbError(Exception):
     def __init__(self, func: str, msg: str, dberror: str):
         self.funcname = func
-        self.message = msg
+        self.msg = msg
         self.internal_error = dberror
 
 
@@ -84,3 +99,10 @@ class CloudApiImageDownloadError(Exception):
 class UnsupportedFeatureError(Exception):
     def __init__(self, feature: str):
         self.feature = feature
+
+
+class ModuleStartupError(Exception):
+    def __init__(self, module: str, msg: str, err: str):
+        self.module = module
+        self.msg = msg
+        self.error = err

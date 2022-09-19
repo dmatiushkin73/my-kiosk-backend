@@ -11,12 +11,15 @@ class AwsApi:
         self._api_key = key
         self._api_url = url
 
-    def get(self) -> dict:
+    def get(self, params: dict) -> dict:
         headers = {}
-        if len(self._api_url) > 0:
+        if len(self._api_key) > 0:
             headers["X-Api-Key"] = self._api_key
+        url = self._api_url
+        for k, v in params.items():
+            url += f"&{k}=v"
         try:
-            r = requests.get(self._api_url, headers=headers, timeout=AwsApi.HTTP_TIMEOUT_SECS)
+            r = requests.get(url, headers=headers, timeout=AwsApi.HTTP_TIMEOUT_SECS)
             if r.status_code == requests.codes.ok:
                 try:
                     obj = r.json()

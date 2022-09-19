@@ -6,13 +6,19 @@ from core import utils
 from core.event_bus import EventBus
 from db.database import Database
 from db.model import AccessLevel
+from cloud.cloud_client import CloudClient
 from cloud.aws import AwsClient
+from logic.planogram import PlanogramLogic
+from logic.cart import CartLogic
 
 
 class KioskBackend:
     """Main Kiosk Backend application class"""
     CFG_FILE = 'config.json'
-    REQ_CFG_OPTIONS = ['database', 'cloud', 'hardware', 'communication', 'telemetry', 'ui', 'logic', 'logger']
+    REQ_CFG_OPTIONS = ['general', 'database', 'cloud', 'cloud:type', 'hardware', 'communication', 'telemetry',
+                       'ui', 'ui:rest_server', 'ui:websocket_server',
+                       'logic', 'logic:planogram', 'logic:cart', 'logic:login', 'logger']
+    DEFAULT_LANGUAGE = "en"
 
     def __init__(self):
         try:
@@ -22,6 +28,7 @@ class KioskBackend:
             print(f"Critical error: failed to open or read {KioskBackend.CFG_FILE} - {str(e)}")
             raise RuntimeError("Configuration is unavailable")
         self._validate_config()
+        self._lang = self._config['general'].get('language', KioskBackend.DEFAULT_LANGUAGE)
         self._cwd = Path.cwd()
         self._data_dir = self._cwd.joinpath('data')
         self._img_dir = self._data_dir.joinpath('images')
@@ -29,8 +36,11 @@ class KioskBackend:
         self._img_dir.mkdir(parents=True, exist_ok=True)
         self._logger = Logger(self._config['logger'])
         self._event_bus = EventBus({}, self._logger)
-        self._database = Database(self._config['database'], self._logger, self._data_dir, self._cwd.joinpath('db'))
-        self._cloud_client = None
+        self._database = Database(self._config['database'], self._logger, self._data_dir, self._cwd.joinpath('db'),
+                                  self._lang)
+        self._cloud_client: CloudClient = None
+        self._planogram_logic: PlanogramLogic = None
+        self._cart_logic: CartLogic = None
 
     def start(self, args: list) -> bool:
         """Returns False if application should exit immediately"""
@@ -47,9 +57,7 @@ class KioskBackend:
             except utils.DbError:
                 pass
             return False
-        cloud_type = self._config['cloud'].get('type')
-        if cloud_type is None:
-            raise utils.ConfigError('cloud', 'type')
+        cloud_type = self._config['cloud']['type']
         if cloud_type not in self._config['cloud']:
             raise utils.ConfigError('cloud', cloud_type)
         if cloud_type == 'aws':
@@ -57,12 +65,22 @@ class KioskBackend:
         else:
             raise utils.UnsupportedFeatureError(f"Cloud type '{cloud_type}'")
         self._cloud_client.validate_config()
+        self._planogram_logic = PlanogramLogic(self._config['logic']['planogram'], self._logger, self._event_bus,
+                                               self._cloud_client, self._database, self._data_dir, self._img_dir)
+        self._planogram_logic.validate_config()
+        self._cart_logic = CartLogic(self._config['logic']['cart'], self._logger, self._event_bus,
+                                     self._cloud_client, self._database)
+        self._cart_logic.validate_config()
         self._cloud_client.start()
+        self._planogram_logic.start()
+        self._cart_logic.start()
         self._logger.info("JER Kiosk Backend application started")
         return True
 
     def cleanup(self):
         self._logger.info("JER Kiosk Backend application is stopping")
+        self._cart_logic.stop()
+        self._planogram_logic.stop()
         self._event_bus.stop()
         if self._cloud_client:
             self._cloud_client.stop()
