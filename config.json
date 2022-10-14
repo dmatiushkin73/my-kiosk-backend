@@ -159,7 +159,7 @@
       "port": 8084,
       "ui_model_filename": "ui-model.json",
       "brand_info_filename": "brand-info.json",
-      "media": "/assets/images",
+      "media": "/assets/images/",
       "transaction_id_timeout": 30
     },
     "websocket_server": {

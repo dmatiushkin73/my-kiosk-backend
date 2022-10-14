@@ -2,6 +2,8 @@ from collections import namedtuple
 from enum import Enum, auto, unique, IntEnum
 
 MAX_UNITS = 1
+MAX_DISPLAYS = 2
+NONEXISTENT_DISPLAY_ID = 0
 
 
 @unique
@@ -40,6 +42,26 @@ class ReservationCompletionStatus(IntEnum):
     DISPENSED = 2
 
 
+@unique
+class MachineState(IntEnum):
+    STARTUP = 1
+    AVAILABLE = 2
+    UNAVAILABLE = 3
+    BUSY = 4
+    MAINTENANCE = 5
+    ERROR = 6
+    UPDATE = 7
+
+
+@unique
+class DispensingStatus(IntEnum):
+    STARTED_ONE_ITEM = 1
+    FINISHED_ONE_ITEM = 2
+    ERROR_ONE_ITEM = 3
+    WAITING_FOR_PICKUP = 4
+    COMPLETED = 5
+
+
 User = namedtuple('User', ['name', 'password', 'access_level', 'last_logged_in'])
 ObjectProperty = namedtuple('Property', ['ptype', 'name', 'value'])
 ObjectInfo = namedtuple('Info', ['name', 'description'])
@@ -56,7 +78,7 @@ class Collection:
         self.obj_id = obj_id
         self.last_update = last_update
         self.media_id = media_id
-        self.info = dict(ObjectInfo)
+        self.info: dict[str, ObjectInfo] = dict()
         self.media: Media = None
         self.products = list()
 
@@ -82,8 +104,8 @@ class Product:
         self.last_update = last_update
         self.prod_type = prod_type
         self.tags = tags
-        self.info = dict(ObjectInfo)
-        self.props = dict(ObjectProperty)
+        self.info: dict[str, ObjectInfo] = dict()
+        self.props: dict[str, ObjectProperty] = dict()
         self.variants = list()
 
     def add_info(self, lang: str, obj_info: ObjectInfo):
@@ -113,9 +135,9 @@ class Variant:
         self.price_comp_fmt = price_comp_fmt
         self.deleted = False if deleted == 0 else True
         self.media_id = media_id
-        self.info = dict(ObjectInfo)
-        self.options = list(VariantOption)
-        self.props = dict(ObjectProperty)
+        self.info: dict[str, ObjectInfo] = dict()
+        self.options: list[VariantOption] = list()
+        self.props: dict[str, ObjectProperty] = dict()
         self.media: Media = None
 
     def set_media(self, m: Media):
@@ -146,10 +168,10 @@ class Cart:
         self.obj_id = obj_id
         self.display_id = display_id
         self.transaction_id = transaction_id
-        self.cart_type = CartType(cart_type)
+        self.cart_type: CartType = CartType(cart_type)
         self.order_info = order_info
-        self.status = CartStatus(status)
-        self.checkout_method = CheckoutMethod(checkout_method)
+        self.status: CartStatus = CartStatus(status)
+        self.checkout_method: CheckoutMethod = CheckoutMethod(checkout_method)
         self.locked_at = locked_at
 
 
@@ -158,5 +180,5 @@ class OrderHistoryRecord:
         self.obj_id = obj_id
         self.transaction_id = transaction_id
         self.order_info = order_info
-        self.completion_status = ReservationCompletionStatus(completion_status)
+        self.completion_status: ReservationCompletionStatus = ReservationCompletionStatus(completion_status)
         self.created_at = created_at

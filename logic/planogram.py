@@ -1,4 +1,4 @@
-from core.appmodule import AppModule
+from core.appmodule import AppModuleWithEvents, AppModuleEventType
 from core.logger import Logger
 from core.event_bus import EventBus, Event
 from cloud.cloud_client import CloudClient
@@ -8,22 +8,18 @@ from db import model
 from core import utils
 import json
 from pathlib import Path
-from enum import Enum, auto, unique
-from threading import Thread, Condition
-from collections import deque
+from enum import auto, unique
 from copy import deepcopy
 
 
 @unique
-class PlanogramEventType(Enum):
-    DUMMY = auto()
+class PlanogramEventType(AppModuleEventType):
     PRODUCT_UPDATED = auto()
     PRODUCT_DELETED = auto()
     COLLECTION_UPDATED = auto()
     BRAND_UPDATED = auto()
     PLANOGRAM_UPDATED = auto()
     APPLY_PLANOGRAM = auto()
-    REJECT_PLANOGRAM = auto()
     GET_PLANOGRAM = auto()
 
 
@@ -46,20 +42,12 @@ class PlanogramEventType(Enum):
 # APPLY_PLANOGRAM:
 #   no fields
 #
-# REJECT_PLANOGRAM:
-#   no fields
-#
 # GET_PLANOGRAM:
 #   no fields
 #
 
-class PlanogramEvent:
-    def __init__(self, ev_type: PlanogramEventType, ev_body: dict):
-        self.type = ev_type
-        self.body = ev_body
 
-
-class PlanogramLogic(AppModule):
+class PlanogramLogic(AppModuleWithEvents):
     """Implements logic that handles corresponding notifications from the Cloud about updates in entire planogram
        or separate items like collections and products, downloads from the Cloud updated data and saves it
        to the database or filesystem in case of media objects.
@@ -75,10 +63,6 @@ class PlanogramLogic(AppModule):
         self._db = db
         self._data_dir = data_dir
         self._img_dir = img_dir
-        self._event_q = deque()
-        self._cv = Condition()
-        self._event_thread: Thread = Thread(target=self._event_processing_worker)
-        self._stopped = False
         self._brand_info = dict()
         self._current_planogram: list[dict | None] = list()
         self._new_planogram: list[dict | None] = list()
@@ -91,6 +75,7 @@ class PlanogramLogic(AppModule):
         return PlanogramLogic.REQ_CFG_OPTIONS
 
     def start(self):
+        super().start()
         iot_client = self._cloud_client.get_iot_client()
         iot_client.register_handler('product', self._on_product_update)
         iot_client.register_handler('collection', self._on_collection_update)
@@ -113,18 +98,20 @@ class PlanogramLogic(AppModule):
                                                                   'depth': item.depth,
                                                                   'variant_id': item.variant_id}
                 self._current_planogram.append(trays)
-        self._ev_bus.subscribe(EventType.NEW_PLANOGRAM_APPLY, self._event_handler)
-        self._ev_bus.subscribe(EventType.NEW_PLANOGRAM_REJECT, self._event_handler)
-        self._ev_bus.subscribe(EventType.GET_PLANOGRAM, self._event_handler)
-        self._event_thread.start()
+        self._ev_bus.subscribe(EventType.NEW_PLANOGRAM_APPLY, self._app_event_handler)
+        self._ev_bus.subscribe(EventType.NEW_PLANOGRAM_REJECT, self._app_event_handler)
+        self._ev_bus.subscribe(EventType.GET_PLANOGRAM, self._app_event_handler)
+        self._register_ev_handler(PlanogramEventType.PRODUCT_UPDATED, self._product_updated_event_handler)
+        self._register_ev_handler(PlanogramEventType.PRODUCT_DELETED, self._product_deleted_event_handler)
+        self._register_ev_handler(PlanogramEventType.COLLECTION_UPDATED, self._collection_updated_event_handler)
+        self._register_ev_handler(PlanogramEventType.BRAND_UPDATED, self._brand_updated_event_handler)
+        self._register_ev_handler(PlanogramEventType.PLANOGRAM_UPDATED, self._planogram_updated_event_handler)
+        self._register_ev_handler(PlanogramEventType.GET_PLANOGRAM, self._planogram_updated_event_handler)
+        self._register_ev_handler(PlanogramEventType.APPLY_PLANOGRAM, self._apply_planogram_event_handler)
         self._logger.info("Planogram Logic module started")
 
     def stop(self):
-        self._stopped = True
-        with self._cv:
-            self._event_q.appendleft(PlanogramEvent(PlanogramEventType.DUMMY, {}))
-            self._cv.notify()
-        self._event_thread.join()
+        super().stop()
         self._logger.info("Planogram Logic module stopped")
 
     def _on_product_update(self, msg: str):
@@ -136,15 +123,9 @@ class PlanogramLogic(AppModule):
                 return
             product_id = data['product_id']
             if upd_type == 'update':
-                with self._cv:
-                    self._event_q.appendleft(PlanogramEvent(PlanogramEventType.PRODUCT_UPDATED,
-                                                            {'product_id': product_id}))
-                    self._cv.notify()
+                self._put_event(PlanogramEventType.PRODUCT_UPDATED, {'product_id': product_id})
             else:
-                with self._cv:
-                    self._event_q.appendleft(PlanogramEvent(PlanogramEventType.PRODUCT_DELETED,
-                                                            {'product_id': product_id}))
-                    self._cv.notify()
+                self._put_event(PlanogramEventType.PRODUCT_DELETED, {'product_id': product_id})
         except json.JSONDecodeError as e:
             self._logger.error(f"Failed to process product update notification - {str(e)}")
         except KeyError:
@@ -158,10 +139,7 @@ class PlanogramLogic(AppModule):
             if upd_type != 'update':
                 return
             collection_id = data['collection_id']
-            with self._cv:
-                self._event_q.appendleft(PlanogramEvent(PlanogramEventType.COLLECTION_UPDATED,
-                                                        {'collection_id': collection_id}))
-                self._cv.notify()
+            self._put_event(PlanogramEventType.COLLECTION_UPDATED, {'collection_id': collection_id})
         except json.JSONDecodeError as e:
             self._logger.error(f"Failed to process collection update notification - {str(e)}")
         except KeyError:
@@ -172,10 +150,7 @@ class PlanogramLogic(AppModule):
         try:
             data = json.loads(msg)
             last_update = data['lastUpdate']
-            with self._cv:
-                self._event_q.appendleft(PlanogramEvent(PlanogramEventType.BRAND_UPDATED,
-                                                        {'lastUpdate': last_update}))
-                self._cv.notify()
+            self._put_event(PlanogramEventType.BRAND_UPDATED, {'lastUpdate': last_update})
         except json.JSONDecodeError as e:
             self._logger.error(f"Failed to process brand update notification - {str(e)}")
         except KeyError:
@@ -185,40 +160,14 @@ class PlanogramLogic(AppModule):
         self._logger.debug(f"Received: ({msg})")
         try:
             data = json.loads(msg)
-            with self._cv:
-                self._event_q.appendleft(PlanogramEvent(PlanogramEventType.PLANOGRAM_UPDATED, {}))
-                self._cv.notify()
+            self._put_event(PlanogramEventType.PLANOGRAM_UPDATED, {})
         except json.JSONDecodeError as e:
             self._logger.error(f"Failed to process planogram update notification - {str(e)}")
 
-    def _event_processing_worker(self):
-        """Processes internal events in a separate thread"""
-        while not self._stopped:
-            with self._cv:
-                self._cv.wait_for(lambda: len(self._event_q) > 0)
-                ev = self._event_q.pop()
-            if ev.type == PlanogramEventType.PRODUCT_DELETED:
-                self._product_deleted_event_handler(ev.body)
-            elif ev.type == PlanogramEventType.PRODUCT_UPDATED:
-                self._product_updated_event_handler(ev.body)
-            elif ev.type == PlanogramEventType.COLLECTION_UPDATED:
-                self._collection_updated_event_handler(ev.body)
-            elif ev.type == PlanogramEventType.BRAND_UPDATED:
-                self._brand_updated_event_handler(ev.body)
-            elif ev.type == PlanogramEventType.PLANOGRAM_UPDATED:
-                self._planogram_updated_event_handler(ev.body)
-            elif ev.type == PlanogramEventType.APPLY_PLANOGRAM:
-                self._apply_new_data()
-                self._apply_new_planogram()
-            elif ev.type == PlanogramEventType.GET_PLANOGRAM:
-                self._planogram_updated_event_handler({})
-
-    def _event_handler(self, ev: Event):
+    def _app_event_handler(self, ev: Event):
         """Processes external events"""
         if ev.type == EventType.NEW_PLANOGRAM_APPLY:
-            with self._cv:
-                self._event_q.appendleft(PlanogramEvent(PlanogramEventType.APPLY_PLANOGRAM, {}))
-                self._cv.notify()
+            self._put_event(PlanogramEventType.APPLY_PLANOGRAM, {})
         elif ev.type == EventType.NEW_PLANOGRAM_REJECT:
             # Not a heavy operation, can be done right away
             for unit_id in range(1, model.MAX_UNITS + 1):
@@ -227,9 +176,7 @@ class PlanogramLogic(AppModule):
             self._new_collections.clear()
             self._new_variants.clear()
         elif ev.type == EventType.GET_PLANOGRAM:
-            with self._cv:
-                self._event_q.appendleft(PlanogramEvent(PlanogramEventType.GET_PLANOGRAM, {}))
-                self._cv.notify()
+            self._put_event(PlanogramEventType.GET_PLANOGRAM, {})
 
     def _product_updated_event_handler(self, params: dict):
         try:
@@ -434,6 +381,10 @@ class PlanogramLogic(AppModule):
             if not is_ok:
                 self._ev_bus.post(Event(EventType.PLANOGRAM_UPDATE_FAILED, {}))
 
+    def _apply_planogram_event_handler(self, params: dict):
+        self._apply_new_data()
+        self._apply_new_planogram()
+
     def _update_product(self, prod: model.Product, upd_prod_data: dict):
         last_update = float(upd_prod_data['last_update'])
         if last_update != prod.last_update:
@@ -521,7 +472,7 @@ class PlanogramLogic(AppModule):
             self._logger.info(f"Collection {coll.obj_id} was updated")
 
     @staticmethod
-    def _compare_planogram_trays(self, current_trays: dict, new_trays: dict) -> bool:
+    def _compare_planogram_trays(current_trays: dict, new_trays: dict) -> bool:
         if len(current_trays) != len(new_trays):
             return False
         if set(current_trays.keys()) != set(new_trays.keys()):

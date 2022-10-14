@@ -25,6 +25,9 @@ class EventType(Enum):
     PURCHASE_FINISHED = auto()
     BEGIN_TRANSACTION_REQUEST = auto()
     BEGIN_TRANSACTION_RESPONSE = auto()
+    MACHINE_STATE_CHANGED = auto()
+    DISPENSING_STATUS = auto()
+    HUMAN_DETECTED = auto()
 
 
 # Events structure:
@@ -73,4 +76,18 @@ class EventType(Enum):
 # BEGIN_TRANSACTION_RESPONSE
 #   'cart_id': int
 #   'success': bool
+#
+# MACHINE_STATE_CHANGED
+#   'state': model.MachineState
+#
+# DISPENSING_STATUS
+#   'cart_id': int
+#   'unit_id': int
+#   'location': int
+#   'variant_id': int
+#   'status': model.DispensingStatus
+#
+# HUMAN_DETECTED
+#   'display_id': int
+#   'profile_id': int
 #

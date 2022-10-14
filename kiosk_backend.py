@@ -10,6 +10,8 @@ from cloud.cloud_client import CloudClient
 from cloud.aws import AwsClient
 from logic.planogram import PlanogramLogic
 from logic.cart import CartLogic
+from ui.backend_server import BackendRestServer
+from ui.ws_server import BackendWebsocketServer
 
 
 class KioskBackend:
@@ -41,6 +43,8 @@ class KioskBackend:
         self._cloud_client: CloudClient = None
         self._planogram_logic: PlanogramLogic = None
         self._cart_logic: CartLogic = None
+        self._ui_backend: BackendRestServer = None
+        self._ui_ws: BackendWebsocketServer = None
 
     def start(self, args: list) -> bool:
         """Returns False if application should exit immediately"""
@@ -71,14 +75,24 @@ class KioskBackend:
         self._cart_logic = CartLogic(self._config['logic']['cart'], self._logger, self._event_bus,
                                      self._cloud_client, self._database)
         self._cart_logic.validate_config()
+        self._ui_backend = BackendRestServer(self._config['ui']['rest_server'], self._logger, self._event_bus,
+                                             self._database, self._cart_logic, self._data_dir, self._lang)
+        self._ui_backend.validate_config()
+        self._ui_ws = BackendWebsocketServer(self._config['ui']['websocket_server'], self._logger, self._event_bus,
+                                             self._database)
+        self._ui_ws.validate_config()
         self._cloud_client.start()
         self._planogram_logic.start()
         self._cart_logic.start()
+        self._ui_backend.start()
+        self._ui_ws.start()
         self._logger.info("JER Kiosk Backend application started")
         return True
 
     def cleanup(self):
         self._logger.info("JER Kiosk Backend application is stopping")
+        self._ui_ws.stop()
+        self._ui_backend.stop()
         self._cart_logic.stop()
         self._planogram_logic.stop()
         self._event_bus.stop()

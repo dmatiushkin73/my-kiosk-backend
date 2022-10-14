@@ -1,4 +1,4 @@
-from core.appmodule import AppModule
+from core.appmodule import AppModuleWithEvents, AppModuleEventType
 from core.logger import Logger
 from core.event_bus import EventBus, Event
 from cloud.cloud_client import CloudClient
@@ -8,10 +8,9 @@ from db import model
 from core import utils
 import json
 from enum import Enum, auto, unique
-from threading import Thread, Condition, Timer
-from collections import deque
-import time
+from threading import Timer
 from collections import namedtuple
+import time
 
 
 @unique
@@ -20,11 +19,11 @@ class CartOperationResult(Enum):
     NOK = auto()
     PENDING = auto()
     ERROR = auto()
+    FAILURE = auto()
 
 
 @unique
-class CartEventType(Enum):
-    DUMMY = auto()
+class CartEventType(AppModuleEventType):
     PLANOGRAM_WAS_UPDATED = auto()
     PROCESS_PENDING_RESERVATIONS = auto()
     BEGIN_TRANSACTION = auto()
@@ -66,17 +65,11 @@ class CartEventType(Enum):
 #
 
 
-class CartEvent:
-    def __init__(self, ev_type: CartEventType, ev_body: dict):
-        self.type = ev_type
-        self.body = ev_body
-
-
 ExpirationItem = namedtuple('ExpirationItem', ['obj_id', 'exp_at'])
 DispensingPendingItem = namedtuple('DispensingPendingItem', ['cart_id', 'reservations'])
 
 
-class CartLogic(AppModule):
+class CartLogic(AppModuleWithEvents):
     """Implements logic related to operations with virtual shopping cart both local and remote.
        Processes requests from UI and from the Online Shopping portal.
     """
@@ -92,10 +85,6 @@ class CartLogic(AppModule):
         self._ev_bus = ev_bus
         self._cloud_client = cloud_client
         self._db = db
-        self._event_q = deque()
-        self._cv = Condition()
-        self._event_thread: Thread = Thread(target=self._event_processing_worker)
-        self._stopped = False
         self._expiration_seconds = 900
         self._prereservation_seconds = 1200
         self._reservation_minutes = 24*60
@@ -111,6 +100,7 @@ class CartLogic(AppModule):
         return CartLogic.REQ_CFG_OPTIONS
 
     def start(self):
+        super().start()
         self._expiration_seconds = self._config['expiration_timeout']
         self._prereservation_seconds = self._config['prereservation_timeout']
         reservation_tm_unit = self._config['reservation_timeout']['unit']
@@ -134,65 +124,34 @@ class CartLogic(AppModule):
         iot_client = self._cloud_client.get_iot_client()
         iot_client.register_handler('transaction', self._on_transaction_updated)
         iot_client.register_handler('reservation', self._on_reservation_updated)
-        self._ev_bus.subscribe(EventType.PLANOGRAM_UPDATE_DONE, self._event_handler)
-        self._ev_bus.subscribe(EventType.PURCHASE_FINISHED, self._event_handler)
-        self._ev_bus.subscribe(EventType.BEGIN_TRANSACTION_REQUEST, self._event_handler)
+        self._ev_bus.subscribe(EventType.PLANOGRAM_UPDATE_DONE, self._app_event_handler)
+        self._ev_bus.subscribe(EventType.PURCHASE_FINISHED, self._app_event_handler)
+        self._ev_bus.subscribe(EventType.BEGIN_TRANSACTION_REQUEST, self._app_event_handler)
+        self._register_ev_handler(CartEventType.PLANOGRAM_WAS_UPDATED, self._handle_planogram_updated)
+        self._register_ev_handler(CartEventType.PROCESS_PENDING_RESERVATIONS, self._process_pending_reservations)
+        self._register_ev_handler(CartEventType.BEGIN_TRANSACTION, self._begin_transaction)
+        self._register_ev_handler(CartEventType.TRANSACTION_COMPLETED, self._process_transaction_completed)
+        self._register_ev_handler(CartEventType.RESERVATION_REQUEST_UPDATE, self._process_reservation_update)
+        self._register_ev_handler(CartEventType.RESERVATION_REQUEST_CANCEL, self._process_reservation_cancel)
+        self._register_ev_handler(CartEventType.RESERVATION_REQUEST_PROLONG, self._process_reservation_prolong)
+        self._register_ev_handler(CartEventType.RESERVATION_REQUEST_CONFIRM, self._process_reservation_confirm)
         self._on_startup()
-        self._event_thread.start()
         self._exp_timer = Timer(CartLogic.EXP_LIST_CHECK_PERIOD_SEC, self._exp_list_process)
         self._logger.info("Cart Logic module started")
 
     def stop(self):
-        self._stopped = True
-        with self._cv:
-            self._event_q.appendleft(CartEvent(CartEventType.DUMMY, {}))
-            self._cv.notify()
-        self._event_thread.join()
+        super().stop()
         self._logger.info("Cart Logic module stopped")
 
-    def _event_processing_worker(self):
-        """Processes internal events in a separate thread"""
-        while not self._stopped:
-            with self._cv:
-                self._cv.wait_for(lambda: len(self._event_q) > 0)
-                ev = self._event_q.pop()
-            try:
-                if ev.type == CartEventType.PLANOGRAM_WAS_UPDATED:
-                    self._handle_planogram_updated()
-                elif ev.type == CartEventType.PROCESS_PENDING_RESERVATIONS:
-                    self._process_pending_reservations(ev.body['item'])
-                elif ev.type == CartEventType.BEGIN_TRANSACTION:
-                    self._begin_transaction(ev.body['cart_id'])
-                elif ev.type == CartEventType.TRANSACTION_COMPLETED:
-                    if ev.body['success']:
-                        res, _ = self.dispense(ev.body['transaction_id'])
-                    else:
-                        res, _ = self.clear(ev.body['transaction_id'])
-                elif ev.type == CartEventType.RESERVATION_REQUEST_UPDATE:
-                    self._process_reservation_update(ev.body['transaction_id'], ev.body['variant_id'],
-                                                     ev.body['amount'], ev.body['request_id'])
-                elif ev.type == CartEventType.RESERVATION_REQUEST_CANCEL:
-                    res, _ = self.clear(ev.body['transaction_id'])
-                elif ev.type == CartEventType.RESERVATION_REQUEST_PROLONG:
-                    res, _ = self.prolong(ev.body['transaction_id'])
-                elif ev.type == CartEventType.RESERVATION_REQUEST_CONFIRM:
-                    res, _ = self.reserve(ev.body['transaction_id'], ev.body['pickup_code'])
-            except KeyError as e:
-                self._logger.error(f"Failed to access some data structure - {str(e)}")
-
-    def _event_handler(self, ev: Event):
+    def _app_event_handler(self, ev: Event):
         """Processes external events"""
         if ev.type == EventType.PLANOGRAM_UPDATE_DONE:
-            with self._cv:
-                self._event_q.appendleft(CartEvent(CartEventType.PLANOGRAM_WAS_UPDATED, {}))
-                self._cv.notify()
+            self._put_event(CartEventType.PLANOGRAM_WAS_UPDATED, {})
         elif ev.type == EventType.PURCHASE_FINISHED:
             # Not a heavy event, process right away
             self._process_purchase_finished(ev.body)
         elif ev.type == EventType.BEGIN_TRANSACTION_REQUEST:
-            with self._cv:
-                self._event_q.appendleft(CartEvent(CartEventType.BEGIN_TRANSACTION, ev.body))
-                self._cv.notify()
+            self._put_event(CartEventType.BEGIN_TRANSACTION, ev.body)
 
     def _on_startup(self):
         try:
@@ -249,11 +208,9 @@ class CartLogic(AppModule):
             data = json.loads(msg)
             transaction_id = data['transactionId']
             status = data['status']
-            with self._cv:
-                self._event_q.appendleft(CartEvent(CartEventType.TRANSACTION_COMPLETED,
-                                                   {'transaction_id': transaction_id,
-                                                    'success': True if status == 'PAYMENT_SUCCESS' else False}))
-                self._cv.notify()
+            self._put_event(CartEventType.TRANSACTION_COMPLETED,
+                            {'transaction_id': transaction_id,
+                             'success': True if status == 'PAYMENT_SUCCESS' else False})
         except json.JSONDecodeError as e:
             self._logger.error(f"Failed to process transaction update notification - {str(e)}")
         except KeyError:
@@ -266,29 +223,17 @@ class CartLogic(AppModule):
             transaction_id = data['transactionId']
             upd_type = data['updateType']
             if upd_type == 'update':
-                with self._cv:
-                    self._event_q.appendleft(CartEvent(CartEventType.RESERVATION_REQUEST_UPDATE,
-                                                       {'transaction_id': transaction_id,
-                                                        'variant_id': data['variantId'],
-                                                        'amount': data['amount'],
-                                                        'request_id': data['requestId']}))
-                    self._cv.notify()
+                self._put_event(CartEventType.RESERVATION_REQUEST_UPDATE, {'transaction_id': transaction_id,
+                                                                           'variant_id': data['variantId'],
+                                                                           'amount': data['amount'],
+                                                                           'request_id': data['requestId']})
             elif upd_type == 'cancel':
-                with self._cv:
-                    self._event_q.appendleft(CartEvent(CartEventType.RESERVATION_REQUEST_CANCEL,
-                                                       {'transaction_id': transaction_id}))
-                    self._cv.notify()
+                self._put_event(CartEventType.RESERVATION_REQUEST_CANCEL, {'transaction_id': transaction_id})
             elif upd_type == 'prolong':
-                with self._cv:
-                    self._event_q.appendleft(CartEvent(CartEventType.RESERVATION_REQUEST_PROLONG,
-                                                       {'transaction_id': transaction_id}))
-                    self._cv.notify()
+                self._put_event(CartEventType.RESERVATION_REQUEST_PROLONG, {'transaction_id': transaction_id})
             elif upd_type == 'confirm':
-                with self._cv:
-                    self._event_q.appendleft(CartEvent(CartEventType.RESERVATION_REQUEST_CONFIRM,
-                                                       {'transaction_id': transaction_id,
-                                                        'pickup_code': data['pickupCode']}))
-                    self._cv.notify()
+                self._put_event(CartEventType.RESERVATION_REQUEST_CONFIRM, {'transaction_id': transaction_id,
+                                                                            'pickup_code': data['pickupCode']})
         except json.JSONDecodeError as e:
             self._logger.error(f"Failed to process reservation update notification - {str(e)}")
         except KeyError:
@@ -428,7 +373,7 @@ class CartLogic(AppModule):
             return result
         except utils.DbError as e:
             # TODO: telemetry
-            return CartOperationResult.ERROR, "Internal error"
+            return CartOperationResult.FAILURE, "Internal error"
 
     def clear(self, transaction_id: str) -> (CartOperationResult, str):
         """Clears cart, its contents and connected reservations. Aborts all expiration timeouts."""
@@ -445,7 +390,7 @@ class CartLogic(AppModule):
             return CartOperationResult.OK, ""
         except utils.DbError as e:
             # TODO: telemetry
-            return CartOperationResult.ERROR, "Internal error"
+            return CartOperationResult.FAILURE, "Internal error"
 
     def prolong(self, transaction_id: str) -> (CartOperationResult, str):
         """Used by the Online Shopping portal to prolong prereservation of a remote cart"""
@@ -464,7 +409,7 @@ class CartLogic(AppModule):
             return CartOperationResult.OK, ""
         except utils.DbError as e:
             # TODO: telemetry
-            return CartOperationResult.ERROR, "Internal error"
+            return CartOperationResult.FAILURE, "Internal error"
 
     def reserve(self, transaction_id: str, order_info: str) -> (CartOperationResult, str):
         """Used by the Online Shopping portal to reserve a cart for subsequent pick up"""
@@ -490,7 +435,7 @@ class CartLogic(AppModule):
             return CartOperationResult.OK, ""
         except utils.DbError as e:
             # TODO: telemetry
-            return CartOperationResult.ERROR, "Internal error"
+            return CartOperationResult.FAILURE, "Internal error"
 
     def dispense(self, transaction_id: str, display_id: int = 0) -> (CartOperationResult, str):
         """Initiate dispensing process for the cart with the given transaction ID"""
@@ -528,9 +473,9 @@ class CartLogic(AppModule):
             return CartOperationResult.OK, ""
         except utils.DbError as e:
             # TODO: telemetry
-            return CartOperationResult.ERROR, "Internal error"
+            return CartOperationResult.FAILURE, "Internal error"
 
-    def _handle_planogram_updated(self):
+    def _handle_planogram_updated(self, params: dict):
         """Check if there are reserved variants and if their locations were changed due to planogram update.
            If yes, then update reservations accordingly.
         """
@@ -677,24 +622,22 @@ class CartLogic(AppModule):
             # Check if there are pending dispensing requests and generate an event to process the first one
             if len(self._pending_dispensing_requests) > 0:
                 pending_item = self._pending_dispensing_requests.pop(0)
-                with self._cv:
-                    self._event_q.appendleft(CartEvent(CartEventType.PROCESS_PENDING_RESERVATIONS,
-                                                       {'item': pending_item}))
-                    self._cv.notify()
+                self._put_event(CartEventType.PROCESS_PENDING_RESERVATIONS, {'item': pending_item})
         except KeyError as e:
             self._logger.error(f"Failed to access data structures - {str(e)}")
         except utils.DbError as e:
             # TODO: telemetry
             pass
 
-    def _process_pending_reservations(self, pending_itme: DispensingPendingItem):
+    def _process_pending_reservations(self, params: dict):
         """Try to initiate dispensing again for the pending reservations"""
         try:
-            self._logger.debug(f"Process pending reservations for cart {pending_itme.cart_id}")
-            cart = self._db.get_cart(pending_itme.cart_id)
+            pending_item = params['item']
+            self._logger.debug(f"Process pending reservations for cart {pending_item.cart_id}")
+            cart = self._db.get_cart(pending_item.cart_id)
             if cart is None:
                 # Should not happen
-                self._logger.error(f"Trying to start dispensing of pending cart {pending_itme.cart_id} "
+                self._logger.error(f"Trying to start dispensing of pending cart {pending_item.cart_id} "
                                    "but it does not exist")
                 return
             # TODO: Call dispensing logic module to start dispensing of reservations
@@ -706,15 +649,22 @@ class CartLogic(AppModule):
             #    self._logger.into(f"Cannot start dispensing for pending cart {cart.obj_id} transaction "
             #                      f"{transaction_id} order {cart.order_info}, put to the queue again")
             #    self._pending_dispensing_requests.append(pending_item)
+        except KeyError as e:
+            self._logger.error(f"Failed to access input parameter - {str(e)}")
         except utils.DbError as e:
             # TODO: telemetry
             pass
 
-    def _begin_transaction(self, cart_id: int):
+    def _begin_transaction(self, params: dict):
         """Pushes the cart's contents to the Cloud and requests to initiate transaction,
            expecting to get transaction ID back. Broadcasts the got transaction ID using event bus.
         """
         is_ok = False
+        try:
+            cart_id = params['cart_id']
+        except KeyError as e:
+            self._logger.error(f"Failed to access input parameter - {str(e)}")
+            return
         try:
             cart = self._db.get_cart(cart_id)
             if cart is None:
@@ -738,6 +688,7 @@ class CartLogic(AppModule):
             self._db.update_cart(cart)
             self._exp_list.append(ExpirationItem(cart_id, time.monotonic() + self._expiration_seconds))
             is_ok = True
+            self._ev_bus.post(Event(EventType.BEGIN_TRANSACTION_RESPONSE, {'cart_id': cart_id, 'success': True}))
         except utils.CloudApiNotFound:
             self._logger.error("{POST API for transaction is not found in the Cloud client")
         except utils.CloudApiFormatError as e:
@@ -758,11 +709,29 @@ class CartLogic(AppModule):
             if not is_ok:
                 self._ev_bus.post(Event(EventType.BEGIN_TRANSACTION_RESPONSE, {'cart_id': cart_id, 'success': False}))
 
-    def _process_reservation_update(self, transaction_id: str, variant_id: int, amount: int, request_id: int):
+    def _process_transaction_completed(self, params: dict):
+        try:
+            transaction_id = params['transaction_id']
+            if params['success']:
+                self.dispense(transaction_id)
+            else:
+                self.clear(transaction_id)
+        except KeyError as e:
+            self._logger.error(f"Failed to access input parameter - {str(e)}")
+
+    def _process_reservation_update(self, params: dict):
         """Processes reservation request from the Online Shopping portal.
            Tries to update the remote cart and sends the result back to the cloud using the corresponding API
         """
-        res, _ = self.update(transaction_id, 0, model.CartType.REMOTE, variant_id, amount)
+        try:
+            transaction_id = params['transaction_id']
+            variant_id = params['variant_id']
+            amount = params['amount']
+            request_id = params['request_id']
+        except KeyError as e:
+            self._logger.error(f"Failed to access input parameter - {str(e)}")
+            return
+        res,_ = self.update(transaction_id, 0, model.CartType.REMOTE, variant_id, amount)
         try:
             resp = {'deviceId': '', 'transactionId': transaction_id,
                     'requestId': request_id, 'result': True if res == CartOperationResult.OK else False}
@@ -776,3 +745,21 @@ class CartLogic(AppModule):
             self._logger.error(f"Failed to connect to the Cloud to post prereservation response data - {e.msg}")
         except utils.CloudApiTimeoutError:
             self._logger.error("Failed to post prereservation response data to the Cloud due to timeout")
+
+    def _process_reservation_cancel(self, params: dict):
+        try:
+            self.clear(params['transaction_id'])
+        except KeyError as e:
+            self._logger.error(f"Failed to access input parameter - {str(e)}")
+
+    def _process_reservation_prolong(self, params: dict):
+        try:
+            self.prolong(params['transaction_id'])
+        except KeyError as e:
+            self._logger.error(f"Failed to access input parameter - {str(e)}")
+
+    def _process_reservation_confirm(self, params: dict):
+        try:
+            self.reserve(params['transaction_id'], params['pickup_code'])
+        except KeyError as e:
+            self._logger.error(f"Failed to access input parameter - {str(e)}")
