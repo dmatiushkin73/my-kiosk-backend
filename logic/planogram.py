@@ -114,6 +114,12 @@ class PlanogramLogic(AppModuleWithEvents):
         super().stop()
         self._logger.info("Planogram Logic module stopped")
 
+    def is_planogram_set(self) -> bool:
+        """Checks if a planogram was applied.
+           It is enough to verify just in the first unit because a planogram cannot be set partially.
+        """
+        return self._current_planogram[0] is not None
+
     def _on_product_update(self, msg: str):
         self._logger.debug(f"Received: ({msg})")
         try:

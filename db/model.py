@@ -1,5 +1,6 @@
 from collections import namedtuple
 from enum import Enum, auto, unique, IntEnum
+from core.fsm import FSMStatesBase
 
 MAX_UNITS = 1
 MAX_DISPLAYS = 2
@@ -43,7 +44,7 @@ class ReservationCompletionStatus(IntEnum):
 
 
 @unique
-class MachineState(IntEnum):
+class MachineState(FSMStatesBase):
     STARTUP = 1
     AVAILABLE = 2
     UNAVAILABLE = 3

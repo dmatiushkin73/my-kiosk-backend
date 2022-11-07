@@ -236,6 +236,10 @@
         "level": "DEBUG"
       },
       {
+        "module": "logic.machine",
+        "level": "DEBUG"
+      },
+      {
         "module": "logic.disp",
         "level": "DEBUG"
       },

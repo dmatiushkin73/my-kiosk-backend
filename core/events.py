@@ -11,6 +11,7 @@ class PlanogramStatusReason(IntEnum):
 @unique
 class EventType(Enum):
     DUMMY = auto()
+    STARTUP_COMPLETE = auto()
     SEND_TO_CLOUD = auto()
     BRAND_INFO_UPDATED = auto()
     UI_MODEL_UPDATED = auto()
@@ -28,12 +29,17 @@ class EventType(Enum):
     MACHINE_STATE_CHANGED = auto()
     DISPENSING_STATUS = auto()
     HUMAN_DETECTED = auto()
+    HW_DISPENSER_IS_READY = auto()
+    DOOR_STATE_CHANGED = auto()
 
 
 # Events structure:
+# STARTUP_COMPLETE:
+#   no fields
+#
 # SEND_TO_CLOUD:
-#   'api':  str      name of cloud API,
-#   'data': dict     object to post
+#   'api':  str     name of cloud API,
+#   'data': dict    object to post
 #
 # BRAND_INFO_UPDATED:
 #   no fields
@@ -90,4 +96,10 @@ class EventType(Enum):
 # HUMAN_DETECTED
 #   'display_id': int
 #   'profile_id': int
+#
+# HW_DISPENSER_IS_READY
+#   no fields
+#
+# DOOR_STATE_CHANGED
+#   'open': bool
 #
